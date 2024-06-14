@@ -19,19 +19,19 @@
 // Package roundrobin defines a roundrobin balancer. Roundrobin balancer is
 // installed as one of the default balancers in gRPC, users don't need to
 // explicitly install this balancer.
-package roundrobin
+package balancer
 
 import (
+	"math/rand"
 	"sync/atomic"
 
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/balancer/base"
 	"google.golang.org/grpc/grpclog"
-	"google.golang.org/grpc/internal/grpcrand"
 )
 
 // Name is the name of round_robin balancer.
-const Name = "round_robin"
+const Name = "custom_round_robin"
 
 var logger = grpclog.Component("roundrobin")
 
@@ -52,15 +52,20 @@ func (*rrPickerBuilder) Build(info base.PickerBuildInfo) balancer.Picker {
 		return base.NewErrPicker(balancer.ErrNoSubConnAvailable)
 	}
 	scs := make([]balancer.SubConn, 0, len(info.ReadySCs))
-	for sc := range info.ReadySCs {
+	scm := make(map[string]balancer.SubConn)
+	for sc, info := range info.ReadySCs {
 		scs = append(scs, sc)
+		if id, ok := info.Address.Metadata.(string); ok {
+			scm[id] = sc
+		}
 	}
 	return &rrPicker{
 		subConns: scs,
+		subConnm: scm,
 		// Start at a random index, as the same RR balancer rebuilds a new
 		// picker when SubConn states change, and we don't want to apply excess
 		// load to the first server in the list.
-		next: uint32(grpcrand.Intn(len(scs))),
+		next: uint32(rand.Intn(len(scs))),
 	}
 }
 
@@ -69,13 +74,24 @@ type rrPicker struct {
 	// created. The slice is immutable. Each Get() will do a round robin
 	// selection from it and return the selected SubConn.
 	subConns []balancer.SubConn
+	subConnm map[string]balancer.SubConn
 	next     uint32
 }
 
-func (p *rrPicker) Pick(balancer.PickInfo) (balancer.PickResult, error) {
+func (p *rrPicker) Pick(pi balancer.PickInfo) (balancer.PickResult, error) {
+	if id, ok := pi.Ctx.Value(ServiceID).(string); ok {
+		if sc, ok := p.subConnm[id]; ok {
+			return balancer.PickResult{SubConn: sc}, nil
+		}
+	}
+
 	subConnsLen := uint32(len(p.subConns))
 	nextIndex := atomic.AddUint32(&p.next, 1)
 
 	sc := p.subConns[nextIndex%subConnsLen]
 	return balancer.PickResult{SubConn: sc}, nil
 }
+
+type ck string
+
+const ServiceID = ck("ServiceID")
