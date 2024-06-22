@@ -27,6 +27,7 @@ type Client struct {
 	notifyChanClose chan *amqp.Error
 	notifyConfirm   chan amqp.Confirmation
 	isReady         bool
+	keys            []string // 队列绑定键
 }
 
 const (
@@ -48,13 +49,14 @@ var (
 
 // New creates a new consumer state instance, and automatically
 // attempts to connect to the server.
-func New(queueName, addr string) *Client {
+func New(queueName, addr string, keys []string) *Client {
 	client := Client{
 		m:         &sync.Mutex{},
 		infolog:   log.New(os.Stdout, "[INFO] ", log.LstdFlags|log.Lmsgprefix),
 		errlog:    log.New(os.Stderr, "[ERROR] ", log.LstdFlags|log.Lmsgprefix),
 		queueName: queueName,
 		done:      make(chan bool),
+		keys:      keys,
 	}
 	go client.handleReconnect(addr)
 	return &client
@@ -158,6 +160,19 @@ func (client *Client) init(conn *amqp.Connection) error {
 		return err
 	}
 
+	// 队列绑定路由键到amq.topic
+	for _, v := range client.keys {
+		if err = ch.QueueBind(
+			client.queueName,
+			v,           // Routing key
+			"amq.topic", // Exchange
+			false,       // No-wait
+			nil,         // Arguments
+		); err != nil {
+			return err
+		}
+	}
+
 	client.changeChannel(ch)
 	client.m.Lock()
 	client.isReady = true
@@ -188,7 +203,7 @@ func (client *Client) changeChannel(channel *amqp.Channel) {
 // Push will push data onto the queue, and wait for a confirmation.
 // This will block until the server sends a confirmation. Errors are
 // only returned if the push action itself fails, see UnsafePush.
-func (client *Client) Push(data []byte) error {
+func (client *Client) Push(key string, data []byte) error {
 	client.m.Lock()
 	if !client.isReady {
 		client.m.Unlock()
@@ -196,7 +211,7 @@ func (client *Client) Push(data []byte) error {
 	}
 	client.m.Unlock()
 	for {
-		err := client.UnsafePush(data)
+		err := client.UnsafePush(key, data)
 		if err != nil {
 			client.errlog.Println("push failed. Retrying...")
 			select {
@@ -218,7 +233,7 @@ func (client *Client) Push(data []byte) error {
 // confirmation. It returns an error if it fails to connect.
 // No guarantees are provided for whether the server will
 // receive the message.
-func (client *Client) UnsafePush(data []byte) error {
+func (client *Client) UnsafePush(key string, data []byte) error {
 	client.m.Lock()
 	if !client.isReady {
 		client.m.Unlock()
@@ -229,12 +244,13 @@ func (client *Client) UnsafePush(data []byte) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// 发布指定路由键到amq.topic
 	return client.channel.PublishWithContext(
 		ctx,
-		"",               // Exchange
-		client.queueName, // Routing key
-		false,            // Mandatory
-		false,            // Immediate
+		"amq.topic", // Exchange
+		key,         // Routing key
+		false,       // Mandatory
+		false,       // Immediate
 		amqp.Publishing{
 			ContentType: "text/plain",
 			Body:        data,
