@@ -2,24 +2,29 @@ package rabbitmq
 
 import (
 	"context"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func (queue *Client) ConsumeFunc(ctx context.Context, fn func(*amqp.Delivery) error) {
-	deliveries, err := queue.Consume()
-	if err != nil {
-		queue.errlog.Printf("could not start consuming: %s\n", err)
-		return
-	}
+// 连接通道关闭时重新消费延迟
+const reConsumeDelay = 5 * time.Second
 
+func (queue *Client) ConsumeFunc(ctx context.Context, fn func(*amqp.Delivery) error) {
 	// This channel will receive a notification when a channel closed event
 	// happens. This must be different from Client.notifyChanClose because the
 	// library sends only one notification and Client.notifyChanClose already has
 	// a receiver in handleReconnect().
 	// Recommended to make it buffered to avoid deadlocks
 	chClosedCh := make(chan *amqp.Error, 1)
-	queue.channel.NotifyClose(chClosedCh)
+	deliveries, err := queue.Consume()
+	if err != nil {
+		queue.errlog.Printf("could not start consuming: %s\n", err)
+		// 支持程序先于RabbitMQ启动
+		close(chClosedCh)
+	} else {
+		queue.channel.NotifyClose(chClosedCh)
+	}
 
 	for {
 		select {
@@ -40,6 +45,11 @@ func (queue *Client) ConsumeFunc(ctx context.Context, fn func(*amqp.Delivery) er
 				// iteration will enter this case because chClosedCh is closed by the
 				// library
 				queue.errlog.Println("error trying to consume, will try again")
+				select {
+				case <-time.After(reConsumeDelay):
+				// 程序退出时提前结束延迟
+				case <-ctx.Done():
+				}
 				continue
 			}
 
