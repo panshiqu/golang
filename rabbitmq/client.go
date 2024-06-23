@@ -3,8 +3,10 @@ package rabbitmq
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -148,13 +150,36 @@ func (client *Client) init(conn *amqp.Connection) error {
 	if err != nil {
 		return err
 	}
+
+	// 声明并启用死信队列
+	// 集群时：At-Least-Once Dead Lettering
+	var args amqp.Table
+	if !strings.HasSuffix(client.queueName, DeadLetterSuffix) {
+		q, err := ch.QueueDeclare(
+			fmt.Sprintf("%s_%s", client.queueName, DeadLetterSuffix),
+			true,  // Durable
+			false, // Delete when unused
+			false, // Exclusive
+			false, // No-wait
+			nil,   // Arguments
+		)
+		if err != nil {
+			return err
+		}
+
+		args = amqp.Table{
+			"x-dead-letter-exchange":    amqp.DefaultExchange,
+			"x-dead-letter-routing-key": q.Name,
+		}
+	}
+
 	_, err = ch.QueueDeclare(
 		client.queueName,
 		true,  // Durable
 		false, // Delete when unused
 		false, // Exclusive
 		false, // No-wait
-		nil,   // Arguments
+		args,  // Arguments
 	)
 	if err != nil {
 		return err

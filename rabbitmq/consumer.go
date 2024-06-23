@@ -2,6 +2,8 @@ package rabbitmq
 
 import (
 	"context"
+	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,10 +13,16 @@ import (
 // 连接通道关闭时重新消费延迟
 const reConsumeDelay = 5 * time.Second
 
+// 死信队列名称后缀
+const DeadLetterSuffix = "dead_letter"
+
 func (queue *Client) ConsumeFunc(ctx context.Context, wg *sync.WaitGroup, fn func(*amqp.Delivery) error) {
 	// 程序退出时等待消费协程
 	wg.Add(1)
 	defer wg.Done()
+
+	// Give the client sometime to set up
+	<-time.After(time.Second)
 
 	// This channel will receive a notification when a channel closed event
 	// happens. This must be different from Client.notifyChanClose because the
@@ -64,9 +72,26 @@ func (queue *Client) ConsumeFunc(ctx context.Context, wg *sync.WaitGroup, fn fun
 			queue.channel.NotifyClose(chClosedCh)
 
 		case delivery := <-deliveries:
-			queue.infolog.Printf("received message: %s\n", delivery.Body)
-			if err := delivery.Ack(false); err != nil {
-				queue.errlog.Printf("error acknowledging message: %s\n", err)
+			if err := fn(&delivery); err != nil {
+				slog.Error("consume", slog.Any("err", err))
+
+				var requeue bool
+				// 消费死信队列失败总是重排
+				if strings.HasSuffix(delivery.RoutingKey, DeadLetterSuffix) {
+					requeue = true
+				}
+				// 首次先重排仍失败再进死信
+				if !delivery.Redelivered {
+					requeue = true
+				}
+
+				if err := delivery.Nack(false, requeue); err != nil {
+					slog.Error("nack", slog.Any("err", err))
+				}
+			} else {
+				if err := delivery.Ack(false); err != nil {
+					slog.Error("ack", slog.Any("err", err))
+				}
 			}
 		}
 	}
