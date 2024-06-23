@@ -2,6 +2,7 @@ package rabbitmq
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -10,7 +11,11 @@ import (
 // 连接通道关闭时重新消费延迟
 const reConsumeDelay = 5 * time.Second
 
-func (queue *Client) ConsumeFunc(ctx context.Context, fn func(*amqp.Delivery) error) {
+func (queue *Client) ConsumeFunc(ctx context.Context, wg *sync.WaitGroup, fn func(*amqp.Delivery) error) {
+	// 程序退出时等待消费协程
+	wg.Add(1)
+	defer wg.Done()
+
 	// This channel will receive a notification when a channel closed event
 	// happens. This must be different from Client.notifyChanClose because the
 	// library sends only one notification and Client.notifyChanClose already has

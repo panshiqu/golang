@@ -150,7 +150,7 @@ func (client *Client) init(conn *amqp.Connection) error {
 	}
 	_, err = ch.QueueDeclare(
 		client.queueName,
-		false, // Durable
+		true,  // Durable
 		false, // Delete when unused
 		false, // Exclusive
 		false, // No-wait
@@ -252,8 +252,9 @@ func (client *Client) UnsafePush(key string, data []byte) error {
 		false,       // Mandatory
 		false,       // Immediate
 		amqp.Publishing{
-			ContentType: "text/plain",
-			Body:        data,
+			DeliveryMode: amqp.Persistent,
+			ContentType:  "text/plain",
+			Body:         data,
 		},
 	)
 }
