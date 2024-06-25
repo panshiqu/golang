@@ -1,6 +1,7 @@
 package rabbitmq
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -56,7 +57,7 @@ func New(queueName, addr string, keys []string) *Client {
 		m:         &sync.Mutex{},
 		infolog:   log.New(os.Stdout, "[INFO] ", log.LstdFlags|log.Lmsgprefix),
 		errlog:    log.New(os.Stderr, "[ERROR] ", log.LstdFlags|log.Lmsgprefix),
-		queueName: queueName,
+		queueName: cmp.Or(queueName, "default_queue_name"),
 		done:      make(chan bool),
 		keys:      keys,
 	}
@@ -229,12 +230,6 @@ func (client *Client) changeChannel(channel *amqp.Channel) {
 // This will block until the server sends a confirmation. Errors are
 // only returned if the push action itself fails, see UnsafePush.
 func (client *Client) Push(key string, data []byte) error {
-	client.m.Lock()
-	if !client.isReady {
-		client.m.Unlock()
-		return errors.New("failed to push: not connected")
-	}
-	client.m.Unlock()
 	for {
 		err := client.UnsafePush(key, data)
 		if err != nil {
