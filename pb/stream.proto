@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+option go_package = "github.com/panshiqu/golang/pb";
+
+package pb;
+
+service Network {
+    rpc Connect(stream Msg) returns (stream Msg) {}
+}
+
+message Msg {
+    Cmd cmd = 1;
+    bytes data = 2;
+}
+
+enum Cmd {
+    Error = 0;
+    Disconnect = 1;
+}

@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+option go_package = "github.com/panshiqu/golang/pb";
+
+package pb;
+
+enum Err {
+    Success = 0;
+    Fail = 1;
+}
+
+message ErrorResponse {
+    Err Code = 1;
+    string Desc = 2;
+    string Detail = 3; // 开发环境填充调用路径
+}
+
+message Int32 {
+    int32 V = 1;
+}
+
+message String {
+    string V = 1;
+}

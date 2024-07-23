@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 func Wrap(err error) error {
@@ -16,4 +17,14 @@ func Wrap(err error) error {
 	}
 
 	return err
+}
+
+func FileLine(err error) string {
+	s := err.Error()
+
+	if n := strings.LastIndex(s, " > "); n != -1 {
+		return s[:n]
+	}
+
+	return s
 }
