@@ -7,13 +7,10 @@ import (
 	"time"
 )
 
-type MutexTimerHeap struct {
-	sync.Mutex
-	TimerHeap
+type TimerHeap struct {
+	M *sync.Mutex
+	s []*Timer
 }
-
-// 仅用于无锁环境
-type TimerHeap []*Timer
 
 type Timer struct {
 	expire   int64 // 到期时间
@@ -23,20 +20,43 @@ type Timer struct {
 	args []any
 }
 
-func (h TimerHeap) Len() int           { return len(h) }
-func (h TimerHeap) Less(i, j int) bool { return h[i].expire < h[j].expire }
-func (h TimerHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *TimerHeap) Len() int           { return len(h.s) }
+func (h *TimerHeap) Less(i, j int) bool { return h.s[i].expire < h.s[j].expire }
+func (h *TimerHeap) Swap(i, j int)      { h.s[i], h.s[j] = h.s[j], h.s[i] }
 
 func (h *TimerHeap) Push(x any) {
-	*h = append(*h, x.(*Timer))
+	if h.M != nil {
+		h.M.Lock()
+		defer h.M.Unlock()
+	}
+
+	h.s = append(h.s, x.(*Timer))
 }
 
 func (h *TimerHeap) Pop() any {
-	old := *h
+	if h.M != nil {
+		h.M.Lock()
+		defer h.M.Unlock()
+	}
+
+	old := h.s
 	n := len(old)
 	x := old[n-1]
-	*h = old[0 : n-1]
+	h.s = old[0 : n-1]
 	return x
+}
+
+func (h *TimerHeap) first() *Timer {
+	if h.M != nil {
+		h.M.Lock()
+		defer h.M.Unlock()
+	}
+
+	if h.Len() == 0 {
+		return nil
+	}
+
+	return h.s[0]
 }
 
 func (h *TimerHeap) Add(t time.Duration, fn func(...any) error, args ...any) {
@@ -57,12 +77,11 @@ func (h *TimerHeap) AddRepeat(t time.Duration, fn func(...any) error, args ...an
 }
 
 func (h *TimerHeap) Check() <-chan time.Time {
-	if h.Len() == 0 {
+	t := h.first()
+	if t == nil {
 		// receive from nil channel blocks forever
 		return nil
 	}
-
-	t := (*h)[0]
 	if ms := time.Now().UnixMilli(); ms < t.expire {
 		return time.After(time.Duration(t.expire-ms) * time.Millisecond)
 	}
@@ -79,22 +98,4 @@ func (h *TimerHeap) Check() <-chan time.Time {
 	}
 
 	return h.Check()
-}
-
-func (h *MutexTimerHeap) Add(t time.Duration, fn func(...any) error, args ...any) {
-	h.Lock()
-	defer h.Unlock()
-	h.TimerHeap.Add(t, fn, args...)
-}
-
-func (h *MutexTimerHeap) AddRepeat(t time.Duration, fn func(...any) error, args ...any) {
-	h.Lock()
-	defer h.Unlock()
-	h.TimerHeap.AddRepeat(t, fn, args...)
-}
-
-func (h *MutexTimerHeap) Check() <-chan time.Time {
-	h.Lock()
-	defer h.Unlock()
-	return h.TimerHeap.Check()
 }
