@@ -20,8 +20,8 @@ func TestHeap(t *testing.T) {
 	h.AddRepeat(time.Second*5, callback, 5, "five")
 	h.Add(time.Second*8, callback, 8, "eight")
 	h.Add(time.Second*16, callback, 16, "sixteen")
-	for i := 0; i < 268; i++ {
-		time.Sleep(time.Millisecond * 100)
-		h.Check()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		<-h.Check()
 	}
 }

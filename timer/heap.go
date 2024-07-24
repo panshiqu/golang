@@ -56,14 +56,15 @@ func (h *TimerHeap) AddRepeat(t time.Duration, fn func(...any) error, args ...an
 	})
 }
 
-func (h *TimerHeap) Check() {
+func (h *TimerHeap) Check() <-chan time.Time {
 	if h.Len() == 0 {
-		return
+		// receive from nil channel blocks forever
+		return nil
 	}
 
 	t := (*h)[0]
-	if time.Now().UnixMilli() < t.expire {
-		return
+	if ms := time.Now().UnixMilli(); ms < t.expire {
+		return time.After(time.Duration(t.expire-ms) * time.Millisecond)
 	}
 
 	if t.interval != 0 {
@@ -77,7 +78,7 @@ func (h *TimerHeap) Check() {
 		slog.Error("check", slog.Any("err", err))
 	}
 
-	h.Check()
+	return h.Check()
 }
 
 func (h *MutexTimerHeap) Add(t time.Duration, fn func(...any) error, args ...any) {
@@ -92,8 +93,8 @@ func (h *MutexTimerHeap) AddRepeat(t time.Duration, fn func(...any) error, args 
 	h.TimerHeap.AddRepeat(t, fn, args...)
 }
 
-func (h *MutexTimerHeap) Check() {
+func (h *MutexTimerHeap) Check() <-chan time.Time {
 	h.Lock()
 	defer h.Unlock()
-	h.TimerHeap.Check()
+	return h.TimerHeap.Check()
 }
