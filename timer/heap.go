@@ -7,80 +7,89 @@ import (
 	"time"
 )
 
-type TimerHeap struct {
+type Heap struct {
 	M *sync.Mutex
 	s []*Timer
 }
 
-type Timer struct {
-	expire   int64 // 到期时间
-	interval int64 // !=0 重复间隔
-
-	fn   func(...any) error
-	args []any
-}
-
-func (h *TimerHeap) Lock() {
+func (h *Heap) Lock() {
 	if h.M != nil {
 		h.M.Lock()
 	}
 }
-func (h *TimerHeap) Unlock() {
+
+func (h *Heap) Unlock() {
 	if h.M != nil {
 		h.M.Unlock()
 	}
 }
-func (h *TimerHeap) Len() int           { return len(h.s) }
-func (h *TimerHeap) Less(i, j int) bool { return h.s[i].expire < h.s[j].expire }
-func (h *TimerHeap) Swap(i, j int)      { h.s[i], h.s[j] = h.s[j], h.s[i] }
 
-func (h *TimerHeap) Push(x any) {
-	h.s = append(h.s, x.(*Timer))
+func (h *Heap) Len() int           { return len(h.s) }
+func (h *Heap) Less(i, j int) bool { return h.s[i].expire < h.s[j].expire }
+func (h *Heap) Swap(i, j int) {
+	h.s[i], h.s[j] = h.s[j], h.s[i]
+	h.s[i].index = i
+	h.s[j].index = j
 }
 
-func (h *TimerHeap) Pop() any {
+func (h *Heap) Push(x any) {
+	n := len(h.s)
+	item := x.(*Timer)
+	item.index = n
+	h.s = append(h.s, item)
+}
+
+func (h *Heap) Pop() any {
 	old := h.s
 	n := len(old)
-	x := old[n-1]
+	item := old[n-1]
+	old[n-1] = nil  // avoid memory leak
+	item.index = -1 // for safety
 	h.s = old[0 : n-1]
-	return x
+	return item
 }
 
-func (h *TimerHeap) Add(t time.Duration, fn func(...any) error, args ...any) {
+func (h *Heap) Add(d time.Duration, fn func(...any) error, args ...any) *Timer {
 	h.Lock()
 	defer h.Unlock()
 
-	heap.Push(h, &Timer{
-		expire: time.Now().Add(t).UnixMilli(),
+	t := &Timer{
+		expire: time.Now().Add(d).UnixMilli(),
+		h:      h,
 		fn:     fn,
 		args:   args,
-	})
+	}
+	heap.Push(h, t)
+	return t
 }
 
-func (h *TimerHeap) AddRepeat(t time.Duration, fn func(...any) error, args ...any) {
+func (h *Heap) AddRepeat(d time.Duration, fn func(...any) error, args ...any) *Timer {
 	h.Lock()
 	defer h.Unlock()
 
-	heap.Push(h, &Timer{
-		expire:   time.Now().Add(t).UnixMilli(),
-		interval: t.Milliseconds(),
+	t := &Timer{
+		expire:   time.Now().Add(d).UnixMilli(),
+		interval: d.Milliseconds(),
+		h:        h,
 		fn:       fn,
 		args:     args,
-	})
+	}
+	heap.Push(h, t)
+	return t
 }
 
-func (h *TimerHeap) Check() <-chan time.Time {
+func (h *Heap) expire() (*Timer, <-chan time.Time) {
 	h.Lock()
+	defer h.Unlock()
+
 	if h.Len() == 0 {
-		h.Unlock()
 		// receive from nil channel blocks forever
-		return nil
+		return nil, nil
 	}
 
 	t := h.s[0]
 	if n := t.expire - time.Now().UnixMilli(); n > 0 {
-		h.Unlock()
-		return time.After(time.Duration(n) * time.Millisecond)
+		return nil, time.After(time.Duration(n) * time.Millisecond)
 	}
 
 	if t.interval != 0 {
@@ -89,7 +98,15 @@ func (h *TimerHeap) Check() <-chan time.Time {
 	} else {
 		heap.Pop(h)
 	}
-	h.Unlock()
+
+	return t, nil
+}
+
+func (h *Heap) Check() <-chan time.Time {
+	t, c := h.expire()
+	if t == nil {
+		return c
+	}
 
 	if err := t.fn(t.args...); err != nil {
 		slog.Error("check", slog.Any("err", err))
