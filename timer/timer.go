@@ -33,3 +33,13 @@ func (t *Timer) Stop() {
 
 	heap.Remove(t.h, t.index)
 }
+
+func (t *Timer) Milli() int64 {
+	t.h.Lock()
+	defer t.h.Unlock()
+
+	if n := time.Now().UnixMilli(); t.expire > n {
+		return t.expire - n
+	}
+	return 0
+}

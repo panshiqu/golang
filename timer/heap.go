@@ -88,8 +88,8 @@ func (h *Heap) expire() (*Timer, <-chan time.Time) {
 	}
 
 	t := h.s[0]
-	if n := t.expire - time.Now().UnixMilli(); n > 0 {
-		return nil, time.After(time.Duration(n) * time.Millisecond)
+	if n := time.Now().UnixMilli(); t.expire > n {
+		return nil, time.After(time.Duration(t.expire-n) * time.Millisecond)
 	}
 
 	if t.interval != 0 {
