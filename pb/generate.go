@@ -54,6 +54,12 @@ func NewInt32[T ~int | ~int32](v T) *Int32 {
 	}
 }
 
+func NewInt64[T ~int | ~int32 | ~int64](v T) *Int64 {
+	return &Int64{
+		V: int64(v),
+	}
+}
+
 func NewString(s string) *String {
 	return &String{
 		V: s,

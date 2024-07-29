@@ -19,6 +19,10 @@ message Int32 {
     int32 V = 1;
 }
 
+message Int64 {
+    int64 V = 1;
+}
+
 message String {
     string V = 1;
 }
