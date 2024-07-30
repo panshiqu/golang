@@ -38,7 +38,7 @@ func E2er(err error, dev bool) (er *ErrorResponse) {
 }
 
 func (c Cmd) Attr() slog.Attr {
-	return slog.Int64("cmd", int64(c))
+	return slog.Any("cmd", c)
 }
 
 func NewMsg(cmd Cmd, data []byte) *Msg {

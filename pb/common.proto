@@ -7,6 +7,13 @@ package pb;
 enum Err {
     Success = 0;
     Fail = 1;
+
+    UnknownCommand = 101; // 未知命令
+    StatusMismatch = 102; // 状态不匹配
+    WatcherOperate = 103; // 旁观操作
+
+    // -= dice =-
+    DiceAlreadyShaken = 10001; // 已经摇过
 }
 
 message ErrorResponse {
