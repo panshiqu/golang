@@ -37,3 +37,9 @@ func Init(l ...slog.Level) {
 func SetLevel(l slog.Level) {
 	level.Set(l)
 }
+
+func Error(err error, log *slog.Logger, msg string, args ...any) {
+	if err != nil {
+		log.Error(msg, append(args, slog.Any("err", err))...)
+	}
+}
