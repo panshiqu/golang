@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"time"
 )
 
 var level slog.LevelVar
@@ -30,8 +29,6 @@ func Init(l ...slog.Level) {
 		Level:       &level,
 		ReplaceAttr: replace,
 	})))
-
-	slog.Info("init", slog.Time("now", time.Now()))
 }
 
 func SetLevel(l slog.Level) {
